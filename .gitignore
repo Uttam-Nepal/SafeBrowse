@@ -1,0 +1,26 @@
+# ── Frontend (Node/Vite) ──────────────────────────────
+frontend/node_modules
+frontend/dist
+
+# ── Backend (Python) ──────────────────────────────────
+backend/venv
+backend/__pycache__
+backend/**/__pycache__
+*.pyc
+
+# Raw training data — large (45MB+), not needed to run the app,
+# only needed if you're retraining. Keep it locally, don't commit it.
+backend/data
+
+# Hybrid model artifacts — the BERT folder in particular will be
+# hundreds of MB, well past GitHub's comfortable file-size limits.
+# Keep these on your machine only; do NOT try to force-add them.
+backend/models/hybrid
+
+# ── Environment secrets (both frontend and backend) ───
+.env
+.env.local
+
+# ── OS / editor junk ───────────────────────────────────
+.DS_Store
+Thumbs.db
