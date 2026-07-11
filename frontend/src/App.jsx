@@ -79,15 +79,19 @@ function Navbar({ dark, setDark, onAccountClick, onLogoClick }) {
   );
 }
 
-function ModelChip({ active, label, onClick }) {
+function ModelChip({ active, label, onClick, disabled }) {
   return (
     <button
-      onClick={onClick}
+      onClick={disabled ? undefined : onClick}
+      disabled={disabled}
+      title={disabled ? "Coming soon" : undefined}
       className={
         "font-mono text-xs px-3 py-1.5 rounded-full border transition " +
-        (active
-          ? "bg-slate-900 text-white border-slate-900"
-          : "bg-transparent text-slate-500 border-slate-200 hover:text-slate-900 hover:border-teal-500")
+        (disabled
+          ? "bg-transparent text-slate-300 border-slate-100 cursor-not-allowed"
+          : active
+            ? "bg-slate-900 text-white border-slate-900"
+            : "bg-transparent text-slate-500 border-slate-200 hover:text-slate-900 hover:border-teal-500")
       }
     >
       {label}
@@ -299,32 +303,28 @@ function CheckerScreen() {
               </div>
             </div>
             <div>
-              <p className="font-mono text-xs uppercase tracking-wider text-teal-700 mb-1.5">
-                Deep Learning
+              <p className="font-mono text-xs uppercase tracking-wider text-slate-400 mb-1.5">
+                Deep Learning{" "}
+                <span className="normal-case text-slate-300">
+                  — coming soon
+                </span>
               </p>
               <div className="flex flex-wrap gap-1.5">
                 {DL_MODELS.map((m) => (
-                  <ModelChip
-                    key={m.key}
-                    label={m.label}
-                    active={activeModel === m.key}
-                    onClick={() => setActiveModel(m.key)}
-                  />
+                  <ModelChip key={m.key} label={m.label} disabled />
                 ))}
               </div>
             </div>
             <div>
-              <p className="font-mono text-xs uppercase tracking-wider text-teal-700 mb-1.5">
-                Transformer
+              <p className="font-mono text-xs uppercase tracking-wider text-slate-400 mb-1.5">
+                Transformer{" "}
+                <span className="normal-case text-slate-300">
+                  — coming soon
+                </span>
               </p>
               <div className="flex flex-wrap gap-1.5">
                 {TRANSFORMER_MODELS.map((m) => (
-                  <ModelChip
-                    key={m.key}
-                    label={m.label}
-                    active={activeModel === m.key}
-                    onClick={() => setActiveModel(m.key)}
-                  />
+                  <ModelChip key={m.key} label={m.label} disabled />
                 ))}
               </div>
             </div>
