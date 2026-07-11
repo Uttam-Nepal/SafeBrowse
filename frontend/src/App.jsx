@@ -24,37 +24,28 @@ const TRANSFORMER_MODELS = [
   { key: "albert", label: "ALBERT" },
 ];
 
-function mockCheckUrl(url) {
-  const lower = url.toLowerCase();
-  const signals = [
-    "verify",
-    "login-secure",
-    "update-account",
-    "free-gift",
-    "paypa1",
-    "bit.ly",
-  ];
-  const suspicious =
-    signals.some((s) => lower.includes(s)) || /\d{5,}/.test(lower);
-  if (suspicious) {
-    return {
-      verdict: "unsafe",
-      confidence: 92,
-      reasons: [
-        "Domain uses suspicious keywords commonly seen in phishing pages",
-        "URL pattern mimics a login or account-verification page",
-        "No matching entry in the trusted-domain list",
-      ],
-    };
+// Points at your local FastAPI backend. When you deploy, change this to
+// your real backend URL (e.g. via an environment variable).
+const API_BASE_URL = "http://localhost:8000";
+
+async function checkUrl(url, model) {
+  const res = await fetch(`${API_BASE_URL}/api/check`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ url, model }),
+  });
+
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.detail || `Request failed (${res.status})`);
   }
+
+  const data = await res.json();
   return {
-    verdict: "safe",
-    confidence: 97,
-    reasons: [
-      "Domain matches a known, trusted pattern",
-      "No suspicious keywords or character substitutions found",
-      "No red flags in URL structure",
-    ],
+    verdict: data.verdict,
+    confidence: Math.round(data.confidence * 100),
+    reasons: data.reasons,
+    note: data.note || null,
   };
 }
 
@@ -142,6 +133,11 @@ function ResultPanel({ url, result, model, onNewSearch }) {
         Confidence reflects model certainty on a balanced test set, not
         real-world URL prevalence.
       </p>
+      {result.note && (
+        <div className="mx-6 mt-3 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-xs text-amber-800">
+          {result.note}
+        </div>
+      )}
       <div className="font-mono text-sm text-slate-500 px-6 pt-3 break-all">
         {url}
       </div>
@@ -191,6 +187,7 @@ function CheckerScreen() {
   const [activeModel, setActiveModel] = useState("default");
   const [scanning, setScanning] = useState(false);
   const [result, setResult] = useState(null);
+  const [errorMsg, setErrorMsg] = useState(null);
 
   const allModels = [...STAT_MODELS, ...DL_MODELS, ...TRANSFORMER_MODELS];
   const modelLabel = (key) =>
@@ -207,14 +204,23 @@ function CheckerScreen() {
     }
   }
 
-  function handleCheck() {
+  async function handleCheck() {
     if (!url.trim()) return;
     setResult(null);
+    setErrorMsg(null);
     setScanning(true);
-    setTimeout(() => {
-      setResult(mockCheckUrl(url));
+    try {
+      const data = await checkUrl(url, activeModel);
+      setResult(data);
+    } catch (err) {
+      setErrorMsg(
+        err.message?.includes("Failed to fetch")
+          ? "Couldn't reach the backend. Is it running on http://localhost:8000?"
+          : err.message,
+      );
+    } finally {
       setScanning(false);
-    }, 900);
+    }
   }
 
   return (
@@ -336,6 +342,18 @@ function CheckerScreen() {
         </div>
       </div>
 
+      {errorMsg && (
+        <div className="w-full max-w-xl mt-4 bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-sm text-red-700">
+          {errorMsg}
+        </div>
+      )}
+
+      {result?.note && (
+        <div className="w-full max-w-xl mt-4 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-sm text-amber-800">
+          {result.note}
+        </div>
+      )}
+
       {result && (
         <ResultPanel
           url={url}
@@ -344,6 +362,7 @@ function CheckerScreen() {
           onNewSearch={() => {
             setUrl("");
             setResult(null);
+            setErrorMsg(null);
           }}
         />
       )}
