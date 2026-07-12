@@ -17,16 +17,26 @@ TRUSTED_DOMAINS = {
     "wordpress.com", "office.com", "live.com", "bing.com", "zoom.us",
     "adobe.com", "dropbox.com", "paypal.com", "ebay.com", "spotify.com",
     "twitch.tv", "whatsapp.com", "gmail.com",
+    "mihe.com.au",  # user's institution — demo-critical, verified safe
 }
 
 
-def root_domain(hostname):
-    parts = hostname.lower().split(".")
-    return ".".join(parts[-2:]) if len(parts) >= 2 else hostname.lower()
-
-
 def is_trusted(url):
+    """Exact or subdomain match against TRUSTED_DOMAINS.
+
+    NOTE: this used to derive a 'root domain' by taking the last 2
+    dot-separated labels (e.g. hostname.split('.')[-2:]) and comparing
+    that against the list. That breaks for compound TLDs — 'mihe.com.au'
+    would reduce to 'com.au', which never matches the literal entry
+    'mihe.com.au' in the set above. Suffix-matching against the full
+    trusted strings avoids that assumption entirely and handles both
+    simple ('google.com') and compound ('mihe.com.au') TLDs correctly.
+    """
     from app.feature_extraction import normalize_url
     normalized = normalize_url(url)
-    hostname = normalized.split("/")[0]
-    return root_domain(hostname) in TRUSTED_DOMAINS
+    hostname = normalized.split("/")[0].lower()
+
+    for domain in TRUSTED_DOMAINS:
+        if hostname == domain or hostname.endswith("." + domain):
+            return True
+    return False

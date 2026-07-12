@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Search, Moon, Sun, User, Check, X, Shield } from "lucide-react";
 
 const STAT_MODELS = [
@@ -28,10 +28,13 @@ const TRANSFORMER_MODELS = [
 // your real backend URL (e.g. via an environment variable).
 const API_BASE_URL = "http://localhost:8000";
 
-async function checkUrl(url, model) {
+async function checkUrl(url, model, token) {
+  const headers = { "Content-Type": "application/json" };
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+
   const res = await fetch(`${API_BASE_URL}/api/check`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers,
     body: JSON.stringify({ url, model }),
   });
 
@@ -49,7 +52,46 @@ async function checkUrl(url, model) {
   };
 }
 
-function Navbar({ dark, setDark, onAccountClick, onLogoClick }) {
+async function apiSignup(email, password) {
+  const res = await fetch(`${API_BASE_URL}/api/signup`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, password }),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.detail || "Signup failed.");
+  return body; // { access_token, token_type, email }
+}
+
+async function apiLogin(email, password) {
+  const res = await fetch(`${API_BASE_URL}/api/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, password }),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.detail || "Login failed.");
+  return body;
+}
+
+async function apiHistory(token) {
+  const res = await fetch(`${API_BASE_URL}/api/history`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.detail || "Could not load history.");
+  return body;
+}
+
+function Navbar({
+  dark,
+  setDark,
+  onAccountClick,
+  onLogoClick,
+  userEmail,
+  onDashboardClick,
+  onLogout,
+}) {
   return (
     <header className="flex items-center justify-between px-6 py-4 border-b border-slate-200 bg-white">
       <button
@@ -68,12 +110,33 @@ function Navbar({ dark, setDark, onAccountClick, onLogoClick }) {
         >
           {dark ? <Sun size={16} /> : <Moon size={16} />}
         </button>
-        <button
-          onClick={onAccountClick}
-          className="w-9 h-9 rounded-full border border-slate-200 grid place-items-center text-slate-500 hover:border-teal-500 hover:text-teal-700"
-        >
-          <User size={16} />
-        </button>
+
+        {userEmail ? (
+          <>
+            <button
+              onClick={onDashboardClick}
+              className="text-sm font-semibold text-slate-700 hover:text-teal-700 px-3 py-1.5 rounded-lg hover:bg-slate-50"
+            >
+              Dashboard
+            </button>
+            <span className="text-sm text-slate-400 hidden sm:inline">
+              {userEmail}
+            </span>
+            <button
+              onClick={onLogout}
+              className="text-sm font-semibold text-slate-500 hover:text-red-600 px-3 py-1.5 rounded-lg hover:bg-red-50"
+            >
+              Sign out
+            </button>
+          </>
+        ) : (
+          <button
+            onClick={onAccountClick}
+            className="w-9 h-9 rounded-full border border-slate-200 grid place-items-center text-slate-500 hover:border-teal-500 hover:text-teal-700"
+          >
+            <User size={16} />
+          </button>
+        )}
       </div>
     </header>
   );
@@ -185,7 +248,7 @@ function ResultPanel({ url, result, model, onNewSearch }) {
   );
 }
 
-function CheckerScreen() {
+function CheckerScreen({ token }) {
   const [url, setUrl] = useState("");
   const [mode, setMode] = useState("default");
   const [activeModel, setActiveModel] = useState("default");
@@ -201,11 +264,19 @@ function CheckerScreen() {
 
   function handleModeChange(next) {
     setMode(next);
+    setResult(null);
+    setErrorMsg(null);
     if (next === "experiment" && activeModel === "default") {
       setActiveModel(STAT_MODELS[0].key);
     } else if (next === "default") {
       setActiveModel("default");
     }
+  }
+
+  function selectModel(key) {
+    setActiveModel(key);
+    setResult(null);
+    setErrorMsg(null);
   }
 
   async function handleCheck() {
@@ -214,7 +285,7 @@ function CheckerScreen() {
     setErrorMsg(null);
     setScanning(true);
     try {
-      const data = await checkUrl(url, activeModel);
+      const data = await checkUrl(url, activeModel, token);
       setResult(data);
     } catch (err) {
       setErrorMsg(
@@ -297,7 +368,7 @@ function CheckerScreen() {
                     key={m.key}
                     label={m.label}
                     active={activeModel === m.key}
-                    onClick={() => setActiveModel(m.key)}
+                    onClick={() => selectModel(m.key)}
                   />
                 ))}
               </div>
@@ -387,7 +458,7 @@ function AuthCard({ eyebrow, title, sub, children }) {
   );
 }
 
-function Field({ label, type = "text", hint }) {
+function Field({ label, type = "text", hint, value, onChange }) {
   return (
     <div className="mb-4 text-left">
       <label className="block text-sm font-semibold mb-1.5 text-slate-900">
@@ -395,6 +466,8 @@ function Field({ label, type = "text", hint }) {
       </label>
       <input
         type={type}
+        value={value}
+        onChange={onChange}
         placeholder={type === "password" ? "••••••••" : "you@example.com"}
         className="w-full px-3.5 py-2.5 rounded-lg border border-slate-200 bg-slate-50 text-sm focus:border-teal-500 focus:bg-white outline-none"
       />
@@ -403,18 +476,62 @@ function Field({ label, type = "text", hint }) {
   );
 }
 
-function SignInScreen({ goSignup }) {
+function SignInScreen({ goSignup, onLoginSuccess }) {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    setError("");
+    if (!email.includes("@") || !password) {
+      setError("Enter a valid email and password to continue.");
+      return;
+    }
+    setLoading(true);
+    try {
+      const data = await apiLogin(email, password);
+      onLoginSuccess(data.access_token, data.email);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
   return (
     <AuthCard
       eyebrow="Welcome back"
       title="Sign in"
       sub="Check your history and saved results."
     >
-      <Field label="Email" type="email" />
-      <Field label="Password" type="password" />
-      <button className="w-full bg-slate-900 text-white font-semibold text-sm py-2.5 rounded-lg mt-1">
-        Sign in
-      </button>
+      <form onSubmit={handleSubmit}>
+        {error && (
+          <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-3 py-2 mb-4">
+            {error}
+          </div>
+        )}
+        <Field
+          label="Email"
+          type="email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+        />
+        <Field
+          label="Password"
+          type="password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+        />
+        <button
+          type="submit"
+          disabled={loading}
+          className="w-full bg-slate-900 text-white font-semibold text-sm py-2.5 rounded-lg mt-1 disabled:opacity-60"
+        >
+          {loading ? "Signing in…" : "Sign in"}
+        </button>
+      </form>
       <div className="flex justify-between text-sm mt-4">
         <a className="text-teal-700 font-semibold cursor-pointer hover:underline">
           Forgot password?
@@ -525,23 +642,165 @@ function AboutScreen() {
   );
 }
 
-function SignUpScreen({ goSignin }) {
+function DashboardScreen({ token }) {
+  const [history, setHistory] = useState(null);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    apiHistory(token)
+      .then(setHistory)
+      .catch((err) => setError(err.message));
+  }, [token]);
+
+  const totalChecks = history?.length || 0;
+  const unsafeCount =
+    history?.filter((h) => h.verdict === "unsafe").length || 0;
+
+  return (
+    <main className="flex-1 px-5 py-14">
+      <div className="max-w-3xl mx-auto">
+        <p className="font-mono text-xs uppercase tracking-wider text-teal-700 mb-1.5">
+          Your account
+        </p>
+        <h1 className="font-semibold text-3xl tracking-tight text-slate-900 mb-6">
+          Dashboard
+        </h1>
+
+        <div className="grid grid-cols-2 gap-3 mb-8 max-w-sm">
+          <div className="bg-white border border-slate-200 rounded-xl px-4 py-3">
+            <p className="font-mono text-2xl font-bold text-slate-900">
+              {totalChecks}
+            </p>
+            <p className="text-xs text-slate-500 mt-0.5">Total checks</p>
+          </div>
+          <div className="bg-white border border-slate-200 rounded-xl px-4 py-3">
+            <p className="font-mono text-2xl font-bold text-red-600">
+              {unsafeCount}
+            </p>
+            <p className="text-xs text-slate-500 mt-0.5">Flagged unsafe</p>
+          </div>
+        </div>
+
+        <h2 className="font-semibold text-lg text-slate-900 mb-3">
+          Recent checks
+        </h2>
+
+        {error && (
+          <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-4 py-3">
+            {error}
+          </div>
+        )}
+
+        {!error && history === null && (
+          <p className="text-slate-500 text-sm">Loading…</p>
+        )}
+
+        {!error && history?.length === 0 && (
+          <p className="text-slate-500 text-sm">
+            No checks yet — head to the checker and try a link.
+          </p>
+        )}
+
+        {!error && history?.length > 0 && (
+          <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+            {history.map((h) => (
+              <div
+                key={h.id}
+                className="flex items-center justify-between gap-4 px-4 py-3 border-b border-slate-100 last:border-0"
+              >
+                <div className="min-w-0">
+                  <p className="font-mono text-sm text-slate-800 truncate">
+                    {h.url}
+                  </p>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    {new Date(h.created_at).toLocaleString()} · {h.model}
+                  </p>
+                </div>
+                <span
+                  className={
+                    "shrink-0 font-mono text-xs font-bold px-2.5 py-1 rounded-full " +
+                    (h.verdict === "safe"
+                      ? "bg-emerald-50 text-emerald-700"
+                      : "bg-red-50 text-red-700")
+                  }
+                >
+                  {h.verdict.toUpperCase()}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </main>
+  );
+}
+
+function SignUpScreen({ goSignin, onLoginSuccess }) {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [password2, setPassword2] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    setError("");
+    if (!email.includes("@") || password.length < 8 || password !== password2) {
+      setError(
+        "Check that your email is valid and both passwords match (min 8 characters).",
+      );
+      return;
+    }
+    setLoading(true);
+    try {
+      const data = await apiSignup(email, password);
+      onLoginSuccess(data.access_token, data.email);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
   return (
     <AuthCard
       eyebrow="Get started"
       title="Create an account"
       sub="Save your check history and revisit past results."
     >
-      <Field label="Email" type="email" />
-      <Field
-        label="Password"
-        type="password"
-        hint="Use at least 8 characters."
-      />
-      <Field label="Re-enter password" type="password" />
-      <button className="w-full bg-slate-900 text-white font-semibold text-sm py-2.5 rounded-lg mt-1">
-        Sign up
-      </button>
+      <form onSubmit={handleSubmit}>
+        {error && (
+          <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-3 py-2 mb-4">
+            {error}
+          </div>
+        )}
+        <Field
+          label="Email"
+          type="email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+        />
+        <Field
+          label="Password"
+          type="password"
+          hint="Use at least 8 characters."
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+        />
+        <Field
+          label="Re-enter password"
+          type="password"
+          value={password2}
+          onChange={(e) => setPassword2(e.target.value)}
+        />
+        <button
+          type="submit"
+          disabled={loading}
+          className="w-full bg-slate-900 text-white font-semibold text-sm py-2.5 rounded-lg mt-1 disabled:opacity-60"
+        >
+          {loading ? "Creating account…" : "Sign up"}
+        </button>
+      </form>
       <p className="text-center text-sm text-slate-500 mt-5">
         Already have an account?{" "}
         <a
@@ -558,6 +817,34 @@ function SignUpScreen({ goSignin }) {
 export default function SafeBrowseApp() {
   const [screen, setScreen] = useState("checker");
   const [dark, setDark] = useState(false);
+  const [token, setToken] = useState(null);
+  const [userEmail, setUserEmail] = useState(null);
+
+  // Restore session on load, if there's a saved token from a previous visit.
+  useEffect(() => {
+    const savedToken = localStorage.getItem("safebrowse-token");
+    const savedEmail = localStorage.getItem("safebrowse-email");
+    if (savedToken && savedEmail) {
+      setToken(savedToken);
+      setUserEmail(savedEmail);
+    }
+  }, []);
+
+  function handleLoginSuccess(newToken, email) {
+    setToken(newToken);
+    setUserEmail(email);
+    localStorage.setItem("safebrowse-token", newToken);
+    localStorage.setItem("safebrowse-email", email);
+    setScreen("checker");
+  }
+
+  function handleLogout() {
+    setToken(null);
+    setUserEmail(null);
+    localStorage.removeItem("safebrowse-token");
+    localStorage.removeItem("safebrowse-email");
+    setScreen("checker");
+  }
 
   return (
     <div
@@ -570,15 +857,33 @@ export default function SafeBrowseApp() {
         setDark={setDark}
         onAccountClick={() => setScreen("signin")}
         onLogoClick={() => setScreen("checker")}
+        userEmail={userEmail}
+        onDashboardClick={() => setScreen("dashboard")}
+        onLogout={handleLogout}
       />
-      {screen === "checker" && <CheckerScreen />}
+      {screen === "checker" && <CheckerScreen token={token} />}
       {screen === "signin" && (
-        <SignInScreen goSignup={() => setScreen("signup")} />
+        <SignInScreen
+          goSignup={() => setScreen("signup")}
+          onLoginSuccess={handleLoginSuccess}
+        />
       )}
       {screen === "signup" && (
-        <SignUpScreen goSignin={() => setScreen("signin")} />
+        <SignUpScreen
+          goSignin={() => setScreen("signin")}
+          onLoginSuccess={handleLoginSuccess}
+        />
       )}
       {screen === "about" && <AboutScreen />}
+      {screen === "dashboard" &&
+        (token ? (
+          <DashboardScreen token={token} />
+        ) : (
+          <SignInScreen
+            goSignup={() => setScreen("signup")}
+            onLoginSuccess={handleLoginSuccess}
+          />
+        ))}
       <footer className="text-center py-5 text-xs text-slate-500">
         SafeBrowse — a phishing detection prototype. Verdicts are guidance, not
         a guarantee.{" "}

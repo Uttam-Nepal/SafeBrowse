@@ -10,14 +10,7 @@ per model.
 """
 
 from app.feature_extraction import extract_features, FEATURE_NAMES, SUSPICIOUS_KEYWORDS
-
-# Common, high-trust domains — a tiny illustrative allowlist, not exhaustive.
-# In a real deployment this would be a much larger curated/maintained list
-# or a call to a reputation service; kept small here so it's easy to read.
-TRUSTED_DOMAINS = {
-    "google.com", "wikipedia.org", "github.com", "microsoft.com",
-    "apple.com", "amazon.com", "youtube.com", "mozilla.org",
-}
+from app.reputation import is_trusted
 
 
 def _feature_dict(url):
@@ -28,9 +21,6 @@ def _feature_dict(url):
 def generate_reasons(url, verdict):
     f = _feature_dict(url)
     reasons = []
-    lower_url = url.lower()
-    hostname = lower_url.split("/")[0].replace("http://", "").replace("https://", "")
-    root_domain = ".".join(hostname.split(".")[-2:]) if "." in hostname else hostname
 
     if verdict == "unsafe":
         if f["has_ip_hostname"]:
@@ -50,7 +40,7 @@ def generate_reasons(url, verdict):
         reasons.append("No matching entry in the trusted-domain list")
 
     else:  # safe
-        if root_domain in TRUSTED_DOMAINS:
+        if is_trusted(url):
             reasons.append("Domain matches a known, trusted entry")
         elif f["suspicious_keyword_count"] == 0:
             reasons.append("No suspicious keywords or character substitutions found")
