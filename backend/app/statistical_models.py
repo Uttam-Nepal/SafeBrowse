@@ -21,21 +21,29 @@ _scaler = None
 
 
 def load_all():
-    """Call once at API startup. Loads whatever model files are present —
-    missing ones (e.g. xgb.joblib if xgboost wasn't installed at training
-    time) are simply skipped rather than crashing the whole service."""
+    """Call once at API startup. Loads whatever model files are present.
+    Each model is loaded independently, wrapped in its own try/except, so
+    one bad or incompatible file (e.g. xgb.joblib present but the xgboost
+    package missing in this environment) can't take the whole service
+    down or block the other models from loading."""
     global _scaler
     scaler_path = os.path.join(MODELS_DIR, "scaler.joblib")
     if os.path.exists(scaler_path):
-        _scaler = load(scaler_path)
+        try:
+            _scaler = load(scaler_path)
+        except Exception as e:
+            print(f"[statistical_models] failed to load scaler: {e}")
 
     for key in ["rf", "dt", "lr", "nb", "svm", "xgb"]:
         path = os.path.join(MODELS_DIR, f"{key}.joblib")
-        if os.path.exists(path):
+        if not os.path.exists(path):
+            print(f"[statistical_models] {key}.joblib not found — '{key}' will be unavailable until trained")
+            continue
+        try:
             _models[key] = load(path)
             print(f"[statistical_models] loaded {key}")
-        else:
-            print(f"[statistical_models] {key}.joblib not found — '{key}' will be unavailable until trained")
+        except Exception as e:
+            print(f"[statistical_models] failed to load {key} ({e}) — skipping, other models unaffected")
 
     return _models
 
