@@ -225,6 +225,7 @@ def check(
             verdict, confidence = hybrid_model.predict(url)
         else:
             verdict, confidence = statistical_models.predict(FALLBACK_MODEL_KEY, url)
+            model_key = FALLBACK_MODEL_KEY  # report what actually served this, not what was requested
             note = (
                 f"Default (hybrid) model isn't loaded yet — showing a temporary "
                 f"result from the {FALLBACK_MODEL_KEY.upper()} model instead."

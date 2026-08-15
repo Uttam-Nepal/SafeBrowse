@@ -50,6 +50,7 @@ async function checkUrl(url, model, token) {
     confidence: Math.round(data.confidence * 100),
     reasons: data.reasons,
     note: data.note || null,
+    servedByModel: data.model,
   };
 }
 
@@ -430,7 +431,7 @@ function CheckerScreen({ token }) {
         <ResultPanel
           url={url}
           result={result}
-          model={modelLabel(activeModel)}
+          model={modelLabel(result?.servedByModel || activeModel)}
           onNewSearch={() => {
             setUrl("");
             setResult(null);
