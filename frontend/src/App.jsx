@@ -26,7 +26,8 @@ const TRANSFORMER_MODELS = [
 
 // Points at your local FastAPI backend. When you deploy, change this to
 // your real backend URL (e.g. via an environment variable).
-const API_BASE_URL = "http://localhost:8000";
+// const API_BASE_URL = "http://localhost:8000";
+const API_BASE_URL = "https://safebrowse-backend.onrender.com";
 
 async function checkUrl(url, model, token) {
   const headers = { "Content-Type": "application/json" };
