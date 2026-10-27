@@ -1,42 +1,20 @@
 import { useState, useEffect } from "react";
 import { Search, Moon, Sun, User, Check, X, Shield } from "lucide-react";
 
-const STAT_MODELS = [
-  { key: "rf", label: "Random Forest" },
-  { key: "xgb", label: "XGBoost" },
-  { key: "lr", label: "Logistic Regression" },
-  { key: "dt", label: "Decision Tree" },
-  { key: "svm", label: "SVM" },
-  { key: "nb", label: "Naive Bayes" },
-];
-const DL_MODELS = [
-  { key: "mlp", label: "MLP" },
-  { key: "cnn", label: "CNN" },
-  { key: "lstm", label: "LSTM" },
-  { key: "bilstm", label: "BiLSTM" },
-  { key: "gru", label: "GRU" },
-  { key: "cnnbilstm", label: "CNN-BiLSTM" },
-];
-const TRANSFORMER_MODELS = [
-  { key: "bert", label: "BERT-base-uncased" },
-  { key: "distilbert", label: "DistilBERT" },
-  { key: "roberta", label: "RoBERTa" },
-  { key: "albert", label: "ALBERT" },
-];
+const MODEL_LABEL = "TURL-MV LeafFuse";
 
 // Points at your local FastAPI backend. When you deploy, change this to
 // your real backend URL (e.g. via an environment variable).
-// const API_BASE_URL = "http://localhost:8000";
-const API_BASE_URL = "https://safebrowse-backend.onrender.com";
+const API_BASE_URL = "http://localhost:8000";
 
-async function checkUrl(url, model, token) {
+async function checkUrl(url, token) {
   const headers = { "Content-Type": "application/json" };
   if (token) headers["Authorization"] = `Bearer ${token}`;
 
   const res = await fetch(`${API_BASE_URL}/api/check`, {
     method: "POST",
     headers,
-    body: JSON.stringify({ url, model }),
+    body: JSON.stringify({ url }),
   });
 
   if (!res.ok) {
@@ -50,7 +28,6 @@ async function checkUrl(url, model, token) {
     confidence: Math.round(data.confidence * 100),
     reasons: data.reasons,
     note: data.note || null,
-    servedByModel: data.model,
   };
 }
 
@@ -144,26 +121,6 @@ function Navbar({
   );
 }
 
-function ModelChip({ active, label, onClick, disabled }) {
-  return (
-    <button
-      onClick={disabled ? undefined : onClick}
-      disabled={disabled}
-      title={disabled ? "Coming soon" : undefined}
-      className={
-        "font-mono text-xs px-3 py-1.5 rounded-full border transition " +
-        (disabled
-          ? "bg-transparent text-slate-300 border-slate-100 cursor-not-allowed"
-          : active
-            ? "bg-slate-900 text-white border-slate-900"
-            : "bg-transparent text-slate-500 border-slate-200 hover:text-slate-900 hover:border-teal-500")
-      }
-    >
-      {label}
-    </button>
-  );
-}
-
 function ResultPanel({ url, result, model, onNewSearch }) {
   const isSafe = result.verdict === "safe";
 
@@ -199,9 +156,15 @@ function ResultPanel({ url, result, model, onNewSearch }) {
         </span>
       </div>
       <p className="text-xs text-slate-400 px-6 pt-1 italic">
-        Confidence reflects model certainty on a balanced test set, not
-        real-world URL prevalence.
+        Confidence is the model's own estimate, not a guarantee.
       </p>
+      {!isSafe && (
+        <p className="text-xs text-amber-700 px-6 pt-1">
+          Research demo: this model was trained on one older dataset and
+          sometimes flags ordinary, well-known sites as unsafe. Treat an Unsafe
+          result as a prompt to double-check, not proof.
+        </p>
+      )}
       {result.note && (
         <div className="mx-6 mt-3 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-xs text-amber-800">
           {result.note}
@@ -252,34 +215,9 @@ function ResultPanel({ url, result, model, onNewSearch }) {
 
 function CheckerScreen({ token }) {
   const [url, setUrl] = useState("");
-  const [mode, setMode] = useState("default");
-  const [activeModel, setActiveModel] = useState("default");
   const [scanning, setScanning] = useState(false);
   const [result, setResult] = useState(null);
   const [errorMsg, setErrorMsg] = useState(null);
-
-  const allModels = [...STAT_MODELS, ...DL_MODELS, ...TRANSFORMER_MODELS];
-  const modelLabel = (key) =>
-    key === "default"
-      ? "Default (Hybrid)"
-      : allModels.find((m) => m.key === key)?.label || "Default";
-
-  function handleModeChange(next) {
-    setMode(next);
-    setResult(null);
-    setErrorMsg(null);
-    if (next === "experiment" && activeModel === "default") {
-      setActiveModel(STAT_MODELS[0].key);
-    } else if (next === "default") {
-      setActiveModel("default");
-    }
-  }
-
-  function selectModel(key) {
-    setActiveModel(key);
-    setResult(null);
-    setErrorMsg(null);
-  }
 
   async function handleCheck() {
     if (!url.trim()) return;
@@ -287,7 +225,7 @@ function CheckerScreen({ token }) {
     setErrorMsg(null);
     setScanning(true);
     try {
-      const data = await checkUrl(url, activeModel, token);
+      const data = await checkUrl(url, token);
       setResult(data);
     } catch (err) {
       setErrorMsg(
@@ -309,8 +247,9 @@ function CheckerScreen({ token }) {
         Paste a link. We'll scan it before you click.
       </h1>
       <p className="text-slate-500 text-center max-w-md mb-9">
-        SafeBrowse checks the URL against trained detection models and explains
-        exactly why it's safe or not — no account needed.
+        SafeBrowse scores the URL with TURL-MV LeafFuse, a hybrid
+        machine-learning model, and explains why it's safe or not — no account
+        needed.
       </p>
 
       <div className="w-full max-w-xl bg-white border border-slate-200 rounded-2xl shadow-sm p-2.5">
@@ -327,82 +266,6 @@ function CheckerScreen({ token }) {
             className="flex-1 font-mono text-sm pl-11 pr-3.5 py-3.5 bg-slate-50 rounded-xl outline-none focus:ring-2 focus:ring-teal-500 focus:ring-inset"
           />
         </div>
-
-        <div className="inline-flex gap-0.5 p-0.5 mt-3 ml-1.5 bg-slate-50 border border-slate-200 rounded-full">
-          <button
-            onClick={() => handleModeChange("default")}
-            className={
-              "font-semibold text-sm px-4 py-1.5 rounded-full " +
-              (mode === "default"
-                ? "bg-slate-900 text-white"
-                : "text-slate-500 hover:text-slate-900")
-            }
-          >
-            Default
-          </button>
-          <button
-            onClick={() => handleModeChange("experiment")}
-            className={
-              "font-semibold text-sm px-4 py-1.5 rounded-full " +
-              (mode === "experiment"
-                ? "bg-slate-900 text-white"
-                : "text-slate-500 hover:text-slate-900")
-            }
-          >
-            Experiment
-          </button>
-        </div>
-        <p className="text-xs text-slate-500 px-2.5 pt-2">
-          {mode === "default"
-            ? "Default gives the clearest result for most people, using the hybrid model."
-            : "Pick one model below to see how it scores this link on its own."}
-        </p>
-
-        {mode === "experiment" && (
-          <div className="flex flex-col gap-3 px-1.5 pt-2 pb-1">
-            <div>
-              <p className="font-mono text-xs uppercase tracking-wider text-teal-700 mb-1.5">
-                Statistical
-              </p>
-              <div className="flex flex-wrap gap-1.5">
-                {STAT_MODELS.map((m) => (
-                  <ModelChip
-                    key={m.key}
-                    label={m.label}
-                    active={activeModel === m.key}
-                    onClick={() => selectModel(m.key)}
-                  />
-                ))}
-              </div>
-            </div>
-            <div>
-              <p className="font-mono text-xs uppercase tracking-wider text-slate-400 mb-1.5">
-                Deep Learning{" "}
-                <span className="normal-case text-slate-300">
-                  — coming soon
-                </span>
-              </p>
-              <div className="flex flex-wrap gap-1.5">
-                {DL_MODELS.map((m) => (
-                  <ModelChip key={m.key} label={m.label} disabled />
-                ))}
-              </div>
-            </div>
-            <div>
-              <p className="font-mono text-xs uppercase tracking-wider text-slate-400 mb-1.5">
-                Transformer{" "}
-                <span className="normal-case text-slate-300">
-                  — coming soon
-                </span>
-              </p>
-              <div className="flex flex-wrap gap-1.5">
-                {TRANSFORMER_MODELS.map((m) => (
-                  <ModelChip key={m.key} label={m.label} disabled />
-                ))}
-              </div>
-            </div>
-          </div>
-        )}
 
         <div className="flex justify-end px-1.5 pt-2">
           <button
@@ -431,7 +294,7 @@ function CheckerScreen({ token }) {
         <ResultPanel
           url={url}
           result={result}
-          model={modelLabel(result?.servedByModel || activeModel)}
+          model={MODEL_LABEL}
           onNewSearch={() => {
             setUrl("");
             setResult(null);
@@ -549,15 +412,14 @@ function SignInScreen({ goSignup, onLoginSuccess }) {
   );
 }
 
-const HYBRID_STATS = [
-  { label: "Accuracy", value: "98.01%" },
-  { label: "Precision", value: "98.06%" },
-  { label: "Recall", value: "97.96%" },
-  { label: "F1-Score", value: "0.9801" },
-  { label: "ROC-AUC", value: "0.9953" },
+const MODEL_STATS = [
+  { label: "Accuracy", value: "95.45%" },
+  { label: "Precision", value: "92.32%" },
+  { label: "Recall", value: "91.17%" },
+  { label: "F1-Score", value: "0.9174" },
 ];
 
-function AboutScreen() {
+function AboutScreen({ onModelClick }) {
   return (
     <main className="flex-1 px-5 py-14">
       <div className="max-w-2xl mx-auto">
@@ -569,35 +431,49 @@ function AboutScreen() {
         </h1>
 
         <section className="mb-8">
-          <h2 className="font-semibold text-lg text-slate-900 mb-2">Dataset</h2>
+          <h2 className="font-semibold text-lg text-slate-900 mb-2">
+            How it decides
+          </h2>
           <p className="text-slate-600 text-sm leading-relaxed">
-            Models are trained on the{" "}
-            <a
-              href="https://www.kaggle.com/datasets/marryjanety/phishing-url-dataset-url-and-label"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-teal-700 font-semibold hover:underline"
-            >
-              Kaggle Malicious URL Dataset
-            </a>{" "}
-            — 651,191 URLs originally labeled across four categories (benign,
-            phishing, malware, defacement). For this app,
-            phishing/malware/defacement were collapsed into a single "Unsafe"
-            label against "Safe" (benign), since that's the decision a user
-            actually needs.
+            TURL-MV LeafFuse reads the URL text only; it never visits the page.
+            Eight base models (a fine-tuned BERT, TF-IDF text models and
+            gradient-boosted trees on lexical features) each score the link, and
+            a final fusion layer combines their scores with tree-path features
+            into one verdict. A short list of well-known trusted domains is
+            checked first.
           </p>
         </section>
 
         <section className="mb-8">
           <h2 className="font-semibold text-lg text-slate-900 mb-2">
-            Default (hybrid) model — reported performance
+            Training data
+          </h2>
+          <p className="text-slate-600 text-sm leading-relaxed">
+            Trained on a locked 80,000-URL sample of the{" "}
+            <a
+              href="https://www.kaggle.com/datasets/sid321axn/malicious-urls-dataset"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-teal-700 font-semibold hover:underline"
+            >
+              Kaggle Malicious URLs Dataset
+            </a>{" "}
+            (651,191 URLs before cleaning). Benign is "Safe"; phishing, malware
+            and defacement are "Unsafe". The data is split by website, so no
+            site appears in both training and testing.
+          </p>
+        </section>
+
+        <section className="mb-8">
+          <h2 className="font-semibold text-lg text-slate-900 mb-2">
+            TURL-MV LeafFuse — reported performance
           </h2>
           <p className="text-slate-600 text-sm leading-relaxed mb-4">
-            Measured on a held-out, class-balanced 10,000-URL test set during
-            training.
+            Measured once on a held-out test set of 16,690 URLs from websites
+            unseen during training.
           </p>
-          <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
-            {HYBRID_STATS.map((s) => (
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            {MODEL_STATS.map((s) => (
               <div
                 key={s.label}
                 className="bg-white border border-slate-200 rounded-xl px-3 py-3 text-center"
@@ -611,32 +487,266 @@ function AboutScreen() {
           </div>
         </section>
 
-        <section className="mb-8 bg-amber-50 border border-amber-200 rounded-xl px-5 py-4">
+        <button
+          onClick={onModelClick}
+          className="mb-6 text-sm font-semibold text-teal-700 hover:underline"
+        >
+          Read the full model details →
+        </button>
+
+        <section className="mb-2 bg-amber-50 border border-amber-200 rounded-xl px-5 py-4">
           <h2 className="font-semibold text-sm text-amber-900 mb-1.5">
             A note on confidence scores
           </h2>
           <p className="text-amber-800 text-sm leading-relaxed">
-            The model above was trained and evaluated on a{" "}
-            <strong>class-balanced</strong> dataset (50% Safe / 50% Unsafe)
-            specifically for fair comparison across models during research. That
-            means confidence scores reflect the model's certainty under that
-            balanced setup — not a calibrated real-world probability, since the
-            vast majority of URLs encountered day-to-day are actually safe.
-            Treat the confidence score as a relative signal, not a literal "X%
-            chance this is dangerous."
+            The confidence shown is the model's own probability estimate, not a
+            guarantee. This app is a research demonstration of TURL-MV-LeafFuse.
+            The model was trained on a single, older public dataset whose "Safe"
+            examples are mostly older, deep-path pages. As a result it can flag
+            many modern, well-known sites as Unsafe, and it has not been tested
+            on other data sources. A short list of well-known domains is checked
+            first, but treat any result as guidance and double-check links you
+            weren't expecting.
+          </p>
+        </section>
+      </div>
+    </main>
+  );
+}
+
+const PAPER_ROWS = [
+  ["TURL-MV-LeafFuse", "0.9236", "0.9115", "0.9175", "0.9687", "0.9837"],
+  ["BERT-Standalone", "0.9095", "0.9160", "0.9127", "0.9702", "0.9828"],
+  ["Hybrid + Random Forest", "0.8922", "0.9238", "0.9077", "0.9696", "0.9836"],
+  ["BERT-Emb + XGBoost", "0.8818", "0.9294", "0.9050", "0.9713", "0.9842"],
+  ["Hybrid + XGBoost", "0.8840", "0.9268", "0.9049", "0.9714", "0.9843"],
+  [
+    "BERT-Emb + Random Forest",
+    "0.8792",
+    "0.9303",
+    "0.9040",
+    "0.9692",
+    "0.9827",
+  ],
+  ["TF-IDF Character", "0.8803", "0.8927", "0.8865", "0.9455", "0.9699"],
+  ["XGBoost Lexical", "0.7218", "0.8432", "0.7778", "0.8889", "0.9404"],
+  ["TF-IDF Token", "0.7035", "0.8555", "0.7721", "0.8899", "0.9395"],
+];
+
+const BASE_MODELS = [
+  [
+    "M1",
+    "XGBoost",
+    "36 handcrafted features: lengths, character counts, entropy, IP/port/https flags, subdomains, suspicious words",
+  ],
+  [
+    "M2",
+    "Logistic regression (SGD)",
+    "Character 3–5-gram TF-IDF (50,000 features)",
+  ],
+  [
+    "M3",
+    "Logistic regression (SGD)",
+    "Word 1–2-gram TF-IDF (up to 30,000 features)",
+  ],
+  ["M4", "BERT classifier", "The URL text, up to 64 tokens"],
+  ["M5", "XGBoost", "BERT's 768-dimension [CLS] vector"],
+  ["M6", "Random forest", "BERT's [CLS] vector"],
+  ["M7", "XGBoost", "Hybrid: [CLS] + 36 features (804 dimensions)"],
+  ["M8", "Random forest", "The same hybrid"],
+];
+
+function ModelScreen({ onBack }) {
+  const h2 = "font-semibold text-lg text-slate-900 mb-2";
+  const p = "text-slate-600 text-sm leading-relaxed";
+  return (
+    <main className="flex-1 px-5 py-14">
+      <div className="max-w-2xl mx-auto">
+        <button
+          onClick={onBack}
+          className="text-sm font-semibold text-teal-700 hover:underline mb-4"
+        >
+          ← Back to About
+        </button>
+        <p className="font-mono text-xs uppercase tracking-wider text-teal-700 mb-1.5">
+          The model
+        </p>
+        <h1 className="font-semibold text-3xl tracking-tight text-slate-900 mb-2">
+          TURL-MV-LeafFuse
+        </h1>
+        <p className="text-slate-500 text-sm mb-6">
+          <strong>T</strong>ransformer <strong>URL</strong>, <strong>M</strong>
+          ulti-<strong>V</strong>iew, with tree-leaf fusion.
+        </p>
+
+        <p className={p + " mb-8"}>
+          SafeBrowse checks links with TURL-MV-LeafFuse, a model that reads a
+          URL in three different ways and combines eight classifiers into one
+          decision. On websites it had never seen before, it flagged about 91%
+          of malicious links, and about 92% of the links it flagged really were
+          malicious.
+        </p>
+
+        <section className="mb-8">
+          <h2 className={h2}>In plain English</h2>
+          <ul className={p + " list-disc pl-5 flex flex-col gap-1.5"}>
+            <li>
+              It looks only at the web address, so it can warn you before the
+              page ever loads.
+            </li>
+            <li>
+              It reads the address three ways: its structure (length, symbols,
+              suspicious words), its letter patterns, and its meaning, using a
+              language model adapted to URLs.
+            </li>
+            <li>
+              Eight different detectors each give an opinion, and a final model
+              weighs them all.
+            </li>
+            <li>
+              It also uses "fingerprints" from decision trees, showing which
+              group of similar URLs a link falls into.
+            </li>
+            <li>
+              It was tested only on websites it never saw during training, so
+              the scores reflect new sites, not memorised ones.
+            </li>
+          </ul>
+        </section>
+
+        <section className="mb-8">
+          <h2 className={h2}>The eight base models</h2>
+          <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+            {BASE_MODELS.map(([id, name, sees]) => (
+              <div
+                key={id}
+                className="grid grid-cols-[2.5rem_1fr] gap-2 px-4 py-2.5 border-b border-slate-100 last:border-0 text-sm"
+              >
+                <span className="font-mono font-bold text-slate-900">{id}</span>
+                <span className="text-slate-600">
+                  <strong className="text-slate-800">{name}</strong> — {sees}
+                </span>
+              </div>
+            ))}
+          </div>
+          <p className={p + " mt-3"}>
+            The BERT model starts from{" "}
+            <span className="font-mono">bert-base-uncased</span>, gets one
+            masked-language-modelling epoch on training URLs (URLs look very
+            different from the English it was first trained on), then up to
+            three fine-tuning epochs. The best epoch is chosen on a separate
+            selection set.
+          </p>
+        </section>
+
+        <section className="mb-8">
+          <h2 className={h2}>LeafFuse: the final decision</h2>
+          <p className={p}>
+            Each tree in model M7 sorts a URL into a "leaf", a small group of
+            URLs it considers similar. Recording the leaf across all 100 trees
+            (1,482 possible leaves) gives the final model a detailed fingerprint
+            that eight single scores would lose. The final classifier is a
+            logistic model on 2,294 inputs: the 8 base-model probabilities, the
+            768-dimension BERT vector and the 36 features (812 standardised
+            values), plus the 1,482 one-hot leaves. The decision threshold
+            (0.513) was chosen on out-of-fold predictions, and the test set was
+            scored once.
+          </p>
+        </section>
+
+        <section className="mb-8">
+          <h2 className={h2}>Data</h2>
+          <p className={p}>
+            The{" "}
+            <a
+              href="https://www.kaggle.com/datasets/sid321axn/malicious-urls-dataset"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-teal-700 font-semibold hover:underline"
+            >
+              Kaggle Malicious URLs Dataset
+            </a>{" "}
+            has 651,191 URLs. After removing parse failures, conflicting labels
+            and duplicates, 630,492 remained, and a fixed 80,000-URL sample was
+            drawn. Benign is Safe; phishing, malware and defacement are Unsafe.
+            The sample is split by registrable domain into train / select / meta
+            / test sets (46,224 / 8,202 / 8,884 / 16,690 URLs), so a website
+            never appears on both sides of the test.
+          </p>
+        </section>
+
+        <section className="mb-8">
+          <h2 className={h2}>Results (test set, 16,690 URLs)</h2>
+          <div className="overflow-x-auto bg-white border border-slate-200 rounded-xl">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-xs text-slate-500 border-b border-slate-200">
+                  <th className="px-3 py-2 font-semibold">Model</th>
+                  <th className="px-2 py-2 font-semibold">Prec.</th>
+                  <th className="px-2 py-2 font-semibold">Recall</th>
+                  <th className="px-2 py-2 font-semibold">F1</th>
+                  <th className="px-2 py-2 font-semibold">PR-AUC</th>
+                  <th className="px-2 py-2 font-semibold">ROC-AUC</th>
+                </tr>
+              </thead>
+              <tbody className="font-mono text-xs">
+                {PAPER_ROWS.map((r, i) => (
+                  <tr
+                    key={r[0]}
+                    className={
+                      "border-b border-slate-100 last:border-0 " +
+                      (i === 0
+                        ? "bg-teal-50 font-bold text-slate-900"
+                        : "text-slate-600")
+                    }
+                  >
+                    <td className="px-3 py-2 font-sans text-sm">{r[0]}</td>
+                    {r.slice(1).map((v, j) => (
+                      <td key={j} className="px-2 py-2">
+                        {v}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className={p + " mt-3"}>
+            LeafFuse has the best F1, a statistically significant gain over all
+            eight baselines (paired bootstrap, 10,000 resamples). It does not
+            have the best ranking scores (PR-AUC and ROC-AUC); its advantage is
+            better final decisions at the chosen threshold. On a second dataset
+            (Kaggle Phishing Site URLs) it reached F1 0.9232. The deployed model
+            scores slightly differently from the table (precision 0.9232, recall
+            0.9117, F1 0.9174, accuracy 0.9545).
+          </p>
+        </section>
+
+        <section className="mb-8 bg-amber-50 border border-amber-200 rounded-xl px-5 py-4">
+          <h2 className="font-semibold text-sm text-amber-900 mb-1.5">
+            Limitations
+          </h2>
+          <p className="text-amber-800 text-sm leading-relaxed">
+            The model judges only the URL text; it cannot see page content,
+            domain age, ownership or reputation lists, so a clean-looking
+            address on a malicious site can pass. It was trained and tested on
+            one public dataset at a fixed point in time, and its accuracy on
+            future attack styles or other data sources has not been measured. In
+            this app, that shows up as ordinary modern sites, even well-known
+            ones, often scored as Unsafe, because the training data
+            under-represents them. Other noted limits: a single BERT training
+            run, and fusion cross-validation that was row-based, not
+            domain-based. Its confidence is a model score, not a calibrated
+            probability, so treat borderline results with caution.
           </p>
         </section>
 
         <section>
-          <h2 className="font-semibold text-lg text-slate-900 mb-2">
-            Experiment models
-          </h2>
-          <p className="text-slate-600 text-sm leading-relaxed">
-            The Statistical, Deep Learning, and Transformer models under
-            "Experiment" are trained separately on the same dataset, for
-            comparing how different modeling approaches score the same link.
-            They're for exploration — Default (hybrid) is the recommended model
-            for everyday use.
+          <h2 className={h2}>Reference</h2>
+          <p className={p}>
+            Nepal, U. and Bose, S. (2026) ‘TURL-MV-LeafFuse: Multi-View Fusion
+            with Tree-Leaf Features for Malicious URL Detection’. Submitted;
+            under review.
           </p>
         </section>
       </div>
@@ -876,7 +986,10 @@ export default function SafeBrowseApp() {
           onLoginSuccess={handleLoginSuccess}
         />
       )}
-      {screen === "about" && <AboutScreen />}
+      {screen === "about" && (
+        <AboutScreen onModelClick={() => setScreen("model")} />
+      )}
+      {screen === "model" && <ModelScreen onBack={() => setScreen("about")} />}
       {screen === "dashboard" &&
         (token ? (
           <DashboardScreen token={token} />

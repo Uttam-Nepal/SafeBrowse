@@ -24,3 +24,5 @@ backend/models/hybrid
 # ── OS / editor junk ───────────────────────────────────
 .DS_Store
 Thumbs.db
+
+backend/models/turl_mv/

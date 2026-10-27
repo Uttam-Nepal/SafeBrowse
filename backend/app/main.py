@@ -1,14 +1,10 @@
 """
 main.py — FastAPI serving layer.
 
-Two endpoints exist on purpose:
-  - POST /predict     exactly as specified for the hybrid model:
-                       { "url": "..." } -> { "url", "prediction": "Safe"|"Unsafe", "confidence" }
-                       Always uses the hybrid ("Default") model.
-  - POST /api/check    the general endpoint the React frontend actually calls,
-                       supports model selection (default + every experiment
-                       model) and returns reasons alongside the verdict.
-  - GET  /health       demo/health-check endpoint.
+Serves one model: TURL-MV LeafFuse.
+  - POST /predict     { "url": "..." } -> { "url", "prediction": "Safe"|"Unsafe", "confidence" }
+  - POST /api/check   what the React frontend calls; adds reasons and logs history.
+  - GET  /health      health check (reports whether the model loaded).
 """
 
 from contextlib import asynccontextmanager
@@ -21,7 +17,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, EmailStr
 from sqlalchemy.orm import Session
 
-from app import statistical_models
 from app import hybrid_model
 from app import reputation
 from app.explain import generate_reasons
@@ -35,7 +30,6 @@ MAX_URL_LENGTH = 2048
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     print("Loading models...")
-    statistical_models.load_all()
     hybrid_model.load_hybrid_model()
     print("Setting up database...")
     Base.metadata.create_all(bind=engine)
@@ -121,7 +115,6 @@ def get_current_user_required(
 
 class CheckRequest(BaseModel):
     url: str = Field(..., min_length=1, max_length=MAX_URL_LENGTH)
-    model: str = "default"
 
 
 class CheckResponse(BaseModel):
@@ -129,13 +122,9 @@ class CheckResponse(BaseModel):
     confidence: float
     reasons: list[str]
     model: str
-    note: str | None = None  # e.g. explains a temporary fallback in effect
+    note: str | None = None
 
-# Used for "Default" when the hybrid model isn't loaded yet — chosen for
-# best recall among the trained statistical models (see training/train_statistical.py
-# metrics). This is a transparent, temporary stand-in, not a substitute for
-# the real hybrid model.
-FALLBACK_MODEL_KEY = "dt"
+MODEL_NAME = hybrid_model.MODEL_NAME
 
 
 def _validate_url(url: str):
@@ -144,6 +133,8 @@ def _validate_url(url: str):
         raise HTTPException(status_code=400, detail="URL must not be empty.")
     if len(url) > MAX_URL_LENGTH:
         raise HTTPException(status_code=400, detail=f"URL exceeds {MAX_URL_LENGTH} characters.")
+    if any(ch.isspace() for ch in url):
+        raise HTTPException(status_code=400, detail="Enter a single URL without spaces.")
     return url
 
 
@@ -151,8 +142,10 @@ def _validate_url(url: str):
 def health():
     return {
         "status": "ok",
-        "hybrid_model_loaded": hybrid_model.is_available(),
-        "statistical_models_loaded": statistical_models.available_models(),
+        "model": MODEL_NAME,
+        "model_loaded": hybrid_model.is_available(),
+        "threshold": hybrid_model.threshold(),
+        "load_error": hybrid_model.load_error(),
     }
 
 
@@ -193,9 +186,12 @@ def predict(req: PredictRequest):
     if not hybrid_model.is_available():
         raise HTTPException(
             status_code=503,
-            detail="Hybrid model is not loaded yet. Add model files to models/hybrid/ and restart.",
+            detail="Model is not loaded. Check /health for the reason.",
         )
-    verdict, confidence = hybrid_model.predict(url)
+    try:
+        verdict, confidence = hybrid_model.predict(url)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     return PredictResponse(
         url=url,
         prediction="Unsafe" if verdict == "unsafe" else "Safe",
@@ -209,31 +205,18 @@ def check(
     db: Session = Depends(get_db),
     user: Optional[models_db.User] = Depends(get_current_user_optional),
 ):
-    """General endpoint used by the frontend. Supports 'default' (hybrid)
-    plus every experiment-tier model key (rf, dt, lr, nb, svm, xgb, ...).
-    Every check is logged to history — user_id is set if logged in,
-    left null for guests, so guests can still use the tool per the
-    product decision that login isn't required."""
+    """General endpoint used by the frontend. Allowlist first, then
+    TURL-MV LeafFuse. Every check is logged to history (user_id is null
+    for guests)."""
     url = _validate_url(req.url)
-    model_key = req.model
-    note = None
 
     if reputation.is_trusted(url):
         verdict, confidence, reasons = "safe", 0.99, ["Domain matches a known, trusted entry"]
-    elif model_key == "default":
-        if hybrid_model.is_available():
-            verdict, confidence = hybrid_model.predict(url)
-        else:
-            verdict, confidence = statistical_models.predict(FALLBACK_MODEL_KEY, url)
-            model_key = FALLBACK_MODEL_KEY  # report what actually served this, not what was requested
-            note = (
-                f"Default (hybrid) model isn't loaded yet — showing a temporary "
-                f"result from the {FALLBACK_MODEL_KEY.upper()} model instead."
-            )
-        reasons = generate_reasons(url, verdict)
     else:
+        if not hybrid_model.is_available():
+            raise HTTPException(status_code=503, detail="The detection model is not available right now.")
         try:
-            verdict, confidence = statistical_models.predict(model_key, url)
+            verdict, confidence = hybrid_model.predict(url)
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
         reasons = generate_reasons(url, verdict)
@@ -241,14 +224,14 @@ def check(
     entry = models_db.CheckHistory(
         user_id=user.id if user else None,
         url=url,
-        model=model_key,
+        model=MODEL_NAME,
         verdict=verdict,
         confidence=confidence,
     )
     db.add(entry)
     db.commit()
 
-    return CheckResponse(verdict=verdict, confidence=confidence, reasons=reasons, model=model_key, note=note)
+    return CheckResponse(verdict=verdict, confidence=confidence, reasons=reasons, model=MODEL_NAME)
 
 
 @app.get("/api/history", response_model=list[HistoryItem])
