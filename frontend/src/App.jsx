@@ -5,7 +5,7 @@ const MODEL_LABEL = "TURL-MV LeafFuse";
 
 // Points at your local FastAPI backend. When you deploy, change this to
 // your real backend URL (e.g. via an environment variable).
-const API_BASE_URL = "http://localhost:8000";
+const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
 
 async function checkUrl(url, token) {
   const headers = { "Content-Type": "application/json" };
