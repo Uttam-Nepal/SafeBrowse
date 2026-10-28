@@ -34,8 +34,25 @@ def threshold():
     return _pm.M["threshold"] if _loaded else None
 
 
+def _ensure_model_files():
+    """On a server with no local copy, download the model from a private
+    Hugging Face model repo (set HF_MODEL_REPO and HF_TOKEN as secrets)."""
+    repo = os.environ.get("HF_MODEL_REPO")
+    if not repo or os.path.exists(os.path.join(MODEL_DIR, "config.json")):
+        return
+    from huggingface_hub import snapshot_download
+    print(f"[turl_mv] Downloading model files from {repo} ...")
+    snapshot_download(repo_id=repo, local_dir=MODEL_DIR, token=os.environ.get("HF_TOKEN"))
+
+
 def load_hybrid_model():
     global _pm, _loaded, _load_error
+    try:
+        _ensure_model_files()
+    except Exception as e:
+        _load_error = f"Model download failed: {type(e).__name__}: {e}"
+        print(f"[turl_mv] {_load_error}")
+        return
     needed = ["predict.py", "config.json", "sklearn_parts.joblib", "m1.json", "m5.json", "m7.json"]
     missing = [f for f in needed if not os.path.exists(os.path.join(MODEL_DIR, f))]
     if missing or not os.path.isdir(os.path.join(MODEL_DIR, "bert")):

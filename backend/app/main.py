@@ -41,9 +41,11 @@ app = FastAPI(title="SafeBrowse API", lifespan=lifespan)
 
 # Dev-friendly CORS. Tighten this to your actual frontend origin before
 # deploying (e.g. allow_origins=["https://yourdomain.com"]).
+# ALLOWED_ORIGINS: comma-separated list (e.g. your frontend URL). Defaults to "*" for local dev.
+_ORIGINS = [o.strip() for o in os.environ.get("ALLOWED_ORIGINS", "*").split(",") if o.strip()]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_ORIGINS,
     allow_methods=["*"],
     allow_headers=["*"],
 )
