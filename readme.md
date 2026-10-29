@@ -1,197 +1,133 @@
 # SafeBrowse
 
-A machine learning web application for phishing and malicious URL detection. Paste a URL and get an instant **Safe / Unsafe** verdict with a confidence score and a plain-language explanation of why, judged from the text of the address alone, so it can warn you before the page ever loads.
+SafeBrowse checks whether a link is safe before you open it. You paste a URL and it tells you Safe or Unsafe, with a confidence score and a short explanation. It only looks at the text of the address, so it can warn you before the page loads.
 
-**Live demo:** https://safe-browse-sigma.vercel.app/
-**Backend API docs:** https://safebrowse-api-764112628669.us-central1.run.app/docs
-**Repository:** https://github.com/Uttam-Nepal/SafeBrowse
+The model behind it, TURL-MV-LeafFuse, comes from my research paper with Saugata Bose (Nepal and Bose, 2026). I built this app to put that model in front of real users.
 
-> **Note:** the demo runs on free-tier hosting. The backend scales to zero when idle, so the first check after a quiet period can take 30 to 60 seconds while the model loads. Accounts and history reset when the backend restarts.
->
-> The version submitted for MIT208 assessment (the DeepTrace hybrid model plus six statistical models) is preserved at the Git tag `v1.0-final`. The assessment report and presentation describe that earlier version. This `main` branch runs the newer model described below.
+Live demo: https://safe-browse-sigma.vercel.app/
+API docs: https://safebrowse-api-764112628669.us-central1.run.app/docs
 
-## Project overview
+The demo runs on free hosting. The backend shuts down when nobody is using it, so the first check after a quiet spell can take 30 to 60 seconds while the model loads. Accounts and history are wiped when it restarts.
 
-SafeBrowse started as a MIT207 project proposal and was developed through MIT208 into a working full-stack application: a React frontend, a FastAPI backend, and a real authentication and history database. It now runs **TURL-MV-LeafFuse**, a research model developed by the author with Dr. Saugata Bose, in place of the earlier models.
+## Why I built it
 
-### Problem addressed
+Phishing links move faster than blocklists. A site usually has to be reported and confirmed before browsers block it, and in that gap people click. SafeBrowse is meant to be a quick second opinion you can get before you click, in plain language, without needing a security background.
 
-Phishing links spread through email, SMS and social media faster than browser blacklists can catch them. A domain has to be reported and confirmed malicious before it is blocked, leaving a real window where new phishing sites go undetected. SafeBrowse gives a fast, independent, explainable second opinion before someone clicks, without needing a security background to interpret the result.
+## What it does
 
-## Features
+- Checks a URL and returns Safe or Unsafe with a confidence score and reasons
+- Checks a list of 2,064 well-known domains first, before the model runs
+- Has a model page in the app that explains how it works, its results and its weak points
+- Works without an account. Signing up adds a dashboard with your check history
+- Has a small admin endpoint that lists registered users and how many checks each has made
 
-- Paste a URL, get a Safe/Unsafe verdict with a confidence score and plain-language reasons
-- Fast reputation allowlist (2,064 well-known and institution-specific domains) checked before the model runs
-- A model-details page in the app explaining how the model works, its results and its limitations
-- Optional accounts (sign up / sign in). Guest use is always fully supported, no account required
-- Per-user Dashboard showing check history and summary statistics
-- Minimal admin endpoint for viewing registered users and their check counts
+## The model
 
-## The model: TURL-MV-LeafFuse
+TURL-MV-LeafFuse stands for Transformer URL, Multi-View, with tree-leaf fusion.
 
-TURL-MV-LeafFuse stands for **Transformer URL, Multi-View, with tree-leaf fusion**.
+It reads each URL in three ways: its structure (length, symbols, suspicious words), its character patterns, and its meaning, using a BERT model adapted to URLs. Eight classifiers each give their own opinion. A final model then combines those opinions, the BERT embedding, 36 handcrafted features, and a "leaf fingerprint" taken from the decision trees of one of the XGBoost models. That fingerprint shows which group of similar URLs a link falls into, and it gives the final model more to work with than eight scores alone. The decision threshold is 0.513, chosen on out-of-fold predictions. The test set was scored once.
 
-- It reads each URL three ways: structure (length, symbols, suspicious words), character patterns, and meaning, using a BERT model adapted to URLs.
-- Eight base classifiers each give an opinion: XGBoost on 36 handcrafted features, two TF-IDF logistic models, a fine-tuned BERT classifier, and XGBoost and random-forest models on BERT embeddings and on a hybrid of embeddings and features.
-- A final logistic model combines the eight probabilities, the BERT embedding, the 36 features and one-hot "leaf fingerprints" taken from the hybrid XGBoost model's decision trees (2,294 inputs in total).
-- The decision threshold (0.513) was chosen on out-of-fold predictions, and the test set was scored once.
+The eight base classifiers are XGBoost on the handcrafted features, two TF-IDF logistic models (characters and words), a fine-tuned BERT classifier, and XGBoost and random forest models on both the BERT embedding and a hybrid of the embedding plus the features.
 
 ### Results
 
-Test set of 16,690 URLs from websites never seen in training (split by registrable domain):
+These are scores on 16,690 test URLs. The split was by domain, so no website appears in both training and test.
 
-| Model                    | Precision | Recall | F1         | PR-AUC | ROC-AUC |
-| ------------------------ | --------- | ------ | ---------- | ------ | ------- |
-| **TURL-MV-LeafFuse**     | 0.9236    | 0.9115 | **0.9175** | 0.9687 | 0.9837  |
-| BERT-Standalone          | 0.9095    | 0.9160 | 0.9127     | 0.9702 | 0.9828  |
-| Hybrid + Random Forest   | 0.8922    | 0.9238 | 0.9077     | 0.9696 | 0.9836  |
-| BERT-Emb + XGBoost       | 0.8818    | 0.9294 | 0.9050     | 0.9713 | 0.9842  |
-| Hybrid + XGBoost         | 0.8840    | 0.9268 | 0.9049     | 0.9714 | 0.9843  |
-| BERT-Emb + Random Forest | 0.8792    | 0.9303 | 0.9040     | 0.9692 | 0.9827  |
-| TF-IDF Character         | 0.8803    | 0.8927 | 0.8865     | 0.9455 | 0.9699  |
-| XGBoost Lexical          | 0.7218    | 0.8432 | 0.7778     | 0.8889 | 0.9404  |
-| TF-IDF Token             | 0.7035    | 0.8555 | 0.7721     | 0.8899 | 0.9395  |
+| Model                    | Precision | Recall | F1     | PR-AUC | ROC-AUC |
+| ------------------------ | --------- | ------ | ------ | ------ | ------- |
+| TURL-MV-LeafFuse         | 0.9236    | 0.9115 | 0.9175 | 0.9687 | 0.9837  |
+| BERT-Standalone          | 0.9095    | 0.9160 | 0.9127 | 0.9702 | 0.9828  |
+| Hybrid + Random Forest   | 0.8922    | 0.9238 | 0.9077 | 0.9696 | 0.9836  |
+| BERT-Emb + XGBoost       | 0.8818    | 0.9294 | 0.9050 | 0.9713 | 0.9842  |
+| Hybrid + XGBoost         | 0.8840    | 0.9268 | 0.9049 | 0.9714 | 0.9843  |
+| BERT-Emb + Random Forest | 0.8792    | 0.9303 | 0.9040 | 0.9692 | 0.9827  |
+| TF-IDF Character         | 0.8803    | 0.8927 | 0.8865 | 0.9455 | 0.9699  |
+| XGBoost Lexical          | 0.7218    | 0.8432 | 0.7778 | 0.8889 | 0.9404  |
+| TF-IDF Token             | 0.7035    | 0.8555 | 0.7721 | 0.8899 | 0.9395  |
 
-LeafFuse has the best F1, a statistically significant gain over all eight baselines (paired bootstrap, 10,000 resamples). It does not have the best ranking scores (PR-AUC, ROC-AUC); its advantage is better final decisions at the chosen threshold. On a second dataset (Kaggle Phishing Site URLs) it reached F1 0.9232. The deployed model scores slightly differently: precision 0.9232, recall 0.9117, F1 0.9174, accuracy 0.9545.
+LeafFuse has the best F1, and the gain over all eight baselines is statistically significant (paired bootstrap, 10,000 resamples). It does not have the best PR-AUC or ROC-AUC. Its advantage is in the final decisions at the chosen threshold. On a second dataset, Kaggle Phishing Site URLs, it reached an F1 of 0.9232. The copy deployed here scores slightly differently: precision 0.9232, recall 0.9117, F1 0.9174, accuracy 0.9545.
 
-Data: the Kaggle Malicious URLs Dataset (651,191 URLs). After cleaning, a fixed 80,000-URL sample was drawn. Benign is Safe; phishing, malware and defacement are Unsafe.
+The training data is the Kaggle Malicious URLs Dataset (651,191 URLs). After cleaning I drew a fixed sample of 80,000. Benign counts as Safe, and phishing, malware and defacement all count as Unsafe.
 
-### Reference
+Reference: Nepal, U. and Bose, S. (2026) "TURL-MV-LeafFuse: Multi-View Fusion with Tree-Leaf Features for Malicious URL Detection". Submitted, under review.
 
-Nepal, U. and Bose, S. (2026) "TURL-MV-LeafFuse: Multi-View Fusion with Tree-Leaf Features for Malicious URL Detection". Submitted; under review.
+## How it fits together
 
-## Architecture
+The frontend is a React and Vite app on Vercel. It talks to a FastAPI backend on Google Cloud Run, which stores users and check history in SQLite through SQLAlchemy. Passwords are hashed with bcrypt and sessions use JWT. The model code sits in its own modules, so it can be retrained or swapped without touching the API or the frontend.
 
-Three-tier design, with the machine learning layer decoupled from the web layer so the model can be retrained or swapped without touching the API or frontend:
+When you check a URL, the backend first validates it. Then it looks at the hostname against the allowlist, matching either the exact domain or a subdomain of it, never a substring. Sites where anyone can publish pages, like sites.google.com, are deliberately left off the list. If the domain isn't on the list, the model scores the URL. The verdict is returned and saved to your history.
 
-```
-React (Vite + Tailwind)  ->  FastAPI backend  ->  SQLite database
- Vercel                       Google Cloud Run     users, check_history
- checker / auth / dashboard   REST API, auth,
- / model page                 model orchestration
-                                    |
-                      +-------------+--------------+
-                      |    ML layer (own modules)  |
-                      |  reputation allowlist ->   |
-                      |  TURL-MV-LeafFuse model    |
-                      |  explanation generator     |
-                      +----------------------------+
-```
+## Running it locally
 
-How a check works:
+The model files are not in this repository because the paper is still under review. Without them the app starts, but `/health` shows `model_loaded: false` and checks return a 503. If you have the model folder, put it at `backend/models/turl_mv/`.
 
-1. The URL is validated.
-2. The reputation allowlist is checked first (exact or subdomain match on the parsed hostname, never a substring match). Hosts where strangers can publish pages, such as `sites.google.com`, are excluded from it.
-3. Otherwise the URL is canonicalised and scored by TURL-MV-LeafFuse.
-4. The verdict is returned and saved to the check history.
-
-## Technology stack
-
-| Layer          | Technology                                                      |
-| -------------- | --------------------------------------------------------------- |
-| Frontend       | React, Vite, Tailwind CSS (hosted on Vercel)                    |
-| Backend        | Python 3.13, FastAPI, Uvicorn (hosted on Google Cloud Run)      |
-| Database / ORM | SQLite, SQLAlchemy (MySQL-ready with one config change)         |
-| Auth           | bcrypt password hashing, JWT bearer tokens                      |
-| Model          | PyTorch (CPU), Hugging Face Transformers, XGBoost, scikit-learn |
-
-## Installation
-
-The model weights are **not** in this repository, because the paper is under review. Without them the app still starts, but `/health` reports `model_loaded: false` and checks return a 503 error. To run the model locally you need the model folder placed at `backend/models/turl_mv/`.
-
-### Prerequisites
-
-- **Python 3.13** (the version the model was trained with). The package versions in `requirements.txt` are pinned exactly, because part of the model is a pickle.
-- Node.js (LTS)
-- Git
-
-### Clone
+You need Python 3.13, which is the version the model was trained with, plus Node.js and Git. The versions in `requirements.txt` are pinned exactly because part of the model is a pickle file.
 
 ```bash
 git clone https://github.com/Uttam-Nepal/SafeBrowse.git
 cd SafeBrowse
 ```
 
-### Backend setup
+Backend:
 
 ```bash
 cd backend
-py -3.13 -m venv venv-turl          # Windows; use python3.13 on macOS/Linux
-venv-turl\Scripts\activate          # source venv-turl/bin/activate on macOS/Linux
+py -3.13 -m venv venv-turl          # on macOS/Linux: python3.13 -m venv venv-turl
+venv-turl\Scripts\activate          # on macOS/Linux: source venv-turl/bin/activate
 pip install -r requirements.txt
+uvicorn app.main:app --reload --port 8000
 ```
 
-### Frontend setup
+Frontend, in a second terminal:
 
 ```bash
 cd frontend
 npm install
-```
-
-## Configuration
-
-The backend reads configuration from OS environment variables (see `.env.example` for the list and safe local defaults). The defaults below work out of the box for local development.
-
-| Variable          | Purpose                                                               | Default (dev only)                           |
-| ----------------- | --------------------------------------------------------------------- | -------------------------------------------- |
-| `JWT_SECRET_KEY`  | Signs authentication tokens. **Set this in production.**              | dev-only-secret-change-this-before-deploying |
-| `ADMIN_KEY`       | Protects the `/api/admin/users` endpoint. **Set this in production.** | dev-admin-key                                |
-| `ALLOWED_ORIGINS` | Comma-separated list of allowed frontend origins                      | `*`                                          |
-| `DATABASE_URL`    | Database connection string                                            | sqlite:///./safebrowse.db                    |
-
-Frontend: the API address defaults to `http://localhost:8000`. Set `VITE_API_URL` at build time to point somewhere else.
-
-## How to run
-
-Terminal 1, backend:
-
-```bash
-cd backend
-venv-turl\Scripts\activate
-uvicorn app.main:app --reload --port 8000
-```
-
-Terminal 2, frontend:
-
-```bash
-cd frontend
 npm run dev
 ```
 
-Open http://localhost:5173. The database (`safebrowse.db`) is created automatically on first run.
+Open http://localhost:5173. The database file is created on first run.
 
-### API
+The backend reads these environment variables, and the defaults are fine for local use:
 
-| Endpoint                                             | Purpose                                                 |
-| ---------------------------------------------------- | ------------------------------------------------------- |
-| `GET /health`                                        | Status, model name, whether the model loaded, threshold |
-| `POST /predict`, `POST /api/check`                   | Check a URL (`{"url": "..."}`)                          |
-| `POST /api/signup`, `POST /api/login`, `GET /api/me` | Accounts                                                |
-| `GET /api/history`                                   | The signed-in user's saved checks                       |
-| `GET /api/admin/users`                               | Registered users and check counts (needs the admin key) |
+| Variable          | What it does                                             | Default                     |
+| ----------------- | -------------------------------------------------------- | --------------------------- |
+| `JWT_SECRET_KEY`  | Signs login tokens. Set it in production.                | a dev-only value            |
+| `ADMIN_KEY`       | Protects `/api/admin/users`. Set it in production.       | `dev-admin-key`             |
+| `ALLOWED_ORIGINS` | Comma-separated frontend origins allowed to call the API | `*`                         |
+| `DATABASE_URL`    | Database connection string                               | `sqlite:///./safebrowse.db` |
 
-## Test accounts
+The frontend calls `http://localhost:8000` unless you set `VITE_API_URL` when building.
 
-No test account is needed. Checking a URL never requires an account. This is a deliberate design decision (NFR2 in the project report), not a missing feature: the core workflow is fully usable as a guest, with every check still logged to the database regardless of login state.
+### Endpoints
 
-To test the optional account features (sign-up, sign-in, Dashboard/history), use Sign Up on the live site with any email address. No pre-seeded credentials are provided.
+| Endpoint                                             | What it does                                     |
+| ---------------------------------------------------- | ------------------------------------------------ |
+| `GET /health`                                        | Status, model name, whether it loaded, threshold |
+| `POST /predict` and `POST /api/check`                | Check a URL, body `{"url": "..."}`               |
+| `POST /api/signup`, `POST /api/login`, `GET /api/me` | Accounts                                         |
+| `GET /api/history`                                   | Your saved checks                                |
+| `GET /api/admin/users`                               | Users and check counts, needs the admin key      |
+
+You don't need an account to check a URL. That's on purpose, and every check is still logged either way. To try the account features, sign up on the live site with any email address.
 
 ## Testing
 
-- Automated evaluation metrics (accuracy, precision, recall, F1, PR-AUC, ROC-AUC) were produced for the model and its eight base classifiers during training; see the results table above.
-- Manual scenario-based testing used URLs outside the training data, including typosquats, compound-TLD domains and IP-hosted links.
-- The assessed version's full test case table, results and two documented bugs (with root cause and fix) are in the MIT208 Assessment 2 report (`/docs/SafeBrowse_MIT208_Assessment2.docx`), Appendix B and Section 6. That report describes the earlier model.
+The model was evaluated on a held-out test set split by domain, using accuracy, precision, recall, F1, PR-AUC and ROC-AUC, and compared with eight baselines using paired bootstrap tests. The app itself was tested by hand with URLs outside the training data: typosquats, compound-TLD domains, IP-hosted links and well-known sites.
 
 ## Limitations
 
-- The model judges **URL text only**. It cannot see page content, domain age, ownership or reputation, so a clean-looking address on a malicious site can pass.
-- It was trained and tested on one public dataset at a fixed point in time. Accuracy on future attack styles or other data sources has not been measured.
-- In this app, ordinary modern sites, even well-known ones, are often scored Unsafe, because the training data under-represents them. The reputation allowlist reduces this for the domains it contains, but it is a list of domains, not a guarantee about any page.
-- Other noted limits: a single BERT training run, and fusion cross-validation that was row-based, not domain-based.
-- Confidence is a model score, not a calibrated probability. Treat borderline results with caution.
-- This is a **research demo**, not a security product. Do not rely on it as your only protection.
-- Free-tier hosting: the backend sleeps when idle, and accounts and history reset when it restarts.
+- The model only sees the URL text. It can't see page content, domain age, who owns the site or its reputation, so a clean-looking address on a malicious site can get through.
+- It was trained and tested on one public dataset from one point in time. How it does on newer attack styles or other data sources hasn't been measured.
+- Ordinary modern websites, even famous ones, often get scored as Unsafe, because the training data doesn't include many of them. The allowlist helps for the domains on it, but it's a list of domains and says nothing about any single page.
+- BERT was trained once, with a single seed, and the cross-validation for the final model was split by row, not by domain.
+- The confidence is a model score, not a calibrated probability. Be careful with results close to the threshold.
+- This is a research demo, not a security product. Don't rely on it as your only protection.
 
-## AI-use note
+## AI use
 
-Claude (Anthropic) was used to assist with testing and implementing parts of the codebase, including integrating the research model into the app and deploying it. All AI-assisted output was reviewed, tested and adapted before inclusion. The TURL-MV-LeafFuse model and its paper are the work of the authors named above.
+I used Claude (Anthropic) to help with parts of the app's code, including connecting the model to the backend and deploying it. I reviewed and tested what it produced. The model and the paper are our own work.
+
+## Authors
+
+Built by Uttam Nepal, Melbourne Institute of Higher Education. Research co-author: Dr. Saugata Bose.
